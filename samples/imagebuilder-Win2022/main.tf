@@ -19,7 +19,7 @@ provider "aws" {
 ###################################################
 resource "aws_key_pair" "windows" {
   key_name   = "windows-${var.windows_version}-key"
-  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC5odj2ycXM09K3eGblUmjZUkkMyjEv2phD/LvoNbZXKTCJGst/MYgcI5j6aY8VF2aGyazwNm/HdNzZ9tf5NzlOPsMkMcF4b4WnxVMuzRIPylDWsZ3V85BquWqKqxE6NnbEg6l9fvT13a8DReA3kri4+K3xFkyWhScZdukyjxDKH/bxJpGl6gywbOlIkryRdUc3cjp8mL6BS5g9/AYmw4XHUnB52T9ceTucc/Q3VaFieXmDNLgzFUOJIhfTOIaQyidZtiZhdTsd39C5Tcpd9PA5/t4tBRQpN44HLGmf983EBRdvmRhW7z/hBiq/dHbTDVZIv+8kF1UB8wgRWCyuixhv epitty@MacBookPro15"
+  public_key = "ssh-rsa localhost keyxxxxxxxxxxxxreplace with you public key here to create key pair"
 }
 
 # Get latest Windows Server 2022 AMI
