@@ -1,2 +1,2 @@
 # aws-imagebuilder
-Terraform AWs image Builder
+Terraform AWS image Builder
