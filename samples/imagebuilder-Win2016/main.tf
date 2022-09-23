@@ -16,13 +16,8 @@ provider "aws" {
 }
 
 ###################################################
-# Windows Imagebuilder
+# dynamic data inputs
 ###################################################
-resource "aws_key_pair" "windows" {
-  key_name   = "windows-${var.windows_version}-key"
-  public_key = "ssh-rsa localhost keyxxxxxxxxxxxxreplace with you public key here to create key pair"
-}
-
 # Get latest Windows Server 2016 AMI
 data "aws_ami" "windows_2016" {
   most_recent = true
@@ -33,6 +28,40 @@ data "aws_ami" "windows_2016" {
   }
 }
 
+#######----------------------------------------------------
+#resources
+#
+######### Security Group
+#
+resource "aws_security_group" "this" {
+  name        = "Security Group to Deploy Image"
+  description = "Allow  443 port"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 443
+    to_port          = 443
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+
+  tags = {
+    Name = "ImageBuilder for windows-${var.windows_version} SecurityGroup"
+  }
+}
+
+######### Instance Profile
+#
 resource "aws_iam_instance_profile" "windows" {
   name = "windows-${var.windows_version}"
   role = aws_iam_role.windows.name
@@ -61,9 +90,11 @@ resource "aws_iam_role" "windows" {
 }
 EOF
 }
+######### AWS ImageBuilder
 
+# Image Builder Distribution
 resource "aws_imagebuilder_distribution_configuration" "windows" {
-  name        = "Windows-${var.windows_version}-host-distribution"
+  name        = "Windows-${var.windows_version}-distribution"
   description = "Windows host image distribution"
 
   distribution {
@@ -78,68 +109,52 @@ resource "aws_imagebuilder_distribution_configuration" "windows" {
       launch_permission {
         #user_ids = var.bastion_hosts_distribution_account_ids # an array of account IDs
       }
+      #target_account_ids = ["123456789002", "123456789003"]
+      #}
+      #region = region.value
     }
   }
 }
 
+# Image Builder Infrastructure Configuration
 resource "aws_imagebuilder_infrastructure_configuration" "windows" {
-  name                  = "windows-${var.windows_version}"
+  name                  = "windows-${var.windows_version}-infrastructure"
   description           = "Windows${var.windows_version}"
   instance_profile_name = aws_iam_instance_profile.windows.name
-  instance_types        = ["t3a.small"]
-  key_pair              = aws_key_pair.windows.key_name
-
+  instance_types        = ["t2.nano", "t3.micro"]
+  key_pair              = var.key-pair
+  security_group_ids    = [aws_security_group.this.id]
+  #sns_topic_arn         = aws_sns_topic.example.arn
+  subnet_id             = var.subnetid
   terminate_instance_on_failure = true
+
+  #logging {
+  #  s3_logs {
+  #    s3_bucket_name = aws_s3_bucket.example.bucket
+  #    s3_key_prefix  = "logs"
+  #  }
+  #}
+
+  tags = {
+    Name = "ImageBuilder for windows-${var.windows_version} Infrastructure Configuration"
+  }
 }
 
-resource "aws_imagebuilder_component" "mysql_workbench" {
-  name        = "mysql-workbench_forWin${var.windows_version}"
-  description = "Install MySQL Workbench"
+# Image Builder Components
+resource "aws_imagebuilder_component" "WindowsFeatures" {
+  name        = "windows-webserver-ndetframework-webmgmt-windows${var.windows_version}"
+  description = "Run Windows2016 with IIS .NET and Web Management Tools"
   platform    = "Windows"
   version     = "1.0.0"
   data = yamlencode({
     phases = [{
       name = "build"
       steps = [{
-        name   = "InstallMySQLWorkbench"
-        action = "ExecutePowerShell"
-        inputs = {
-          commands = ["C:\\ProgramData\\chocolatey\\bin\\choco.exe install mysql.workbench -y"]
-        }
-
-        onFailure = "Abort"
-      }]
-    }]
-    schemaVersion = 1.0
-  })
-}
-
-resource "aws_imagebuilder_component" "insightvm" {
-  name        = "InstallInsightsVM-Windows${var.windows_version}"
-  description = "Install InsightVM document"
-  platform    = "Windows"
-  version     = "1.0.0"
-  parameters  = 
-    DevOpsBucketOnS3 = 
-      type    = string
-      default = $DevOpsBucketOnS3 
-  data = yamlencode({
-    phases = [{
-      name = "build"
-      steps = [{
-        name   = "InstallInsightVMStep"
+        name   = "WindowsDefenderATP"
         action = "ExecutePowerShell"
         inputs = {
           commands = [
-                    - Write-Host "Downloading insightvm msi installer file"
-                    - $installer = Join-Path -Path $env:TEMP -ChildPath 'insightvm.msi'
-                    - Read-S3Object -BucketName {{ DevOpsBucketOnS3 }} -Key "image-builder-artifacts/windows/insightvm.msi" -File $installer
-                    - $InsightVMTokenSecret = Get-SECSecretValue -SecretId InsightVMToken
-                    - $token = $InsightVMTokenSecret.SecretString
-                    - $instfolder = $env:TEMP
-                    - Set-Location $instfolder
-                    - Start-Process -FilePath msiexec.exe -ArgumentList @("/i $installer /l*v insight_agent_install.log CUSTOMTOKEN=$token /quiet") -Wait
-                    - Write-Host "insightvm installation completed"
+          "Install-WindowsFeature -Name Web-Server,NET-Framework-45-ASPNET,Web-Asp-Net45,Web-Net-Ext45,Web-Mgmt-Tools"  
           ]
         }
 
@@ -150,10 +165,10 @@ resource "aws_imagebuilder_component" "insightvm" {
   })
 }
 
-
+# Image Builder Recipe
 resource "aws_imagebuilder_image_recipe" "windows" {
-  name         = "Windows${var.windows_version}"
-  description  = "Windows${var.windows_version} machine with MySQL Workbench, SSMS, pgadmin and Google Chrome installed"
+  name         = "Windows${var.windows_version}-recipe"
+  description  = "Windows${var.windows_version} machine with Web-Server,NET-Framework-45-ASPNET,Web-Asp-Net45,Web-Net-Ext45,Web-Mgmt-Tools, AWS-cli"
   version      = "1.0.0"
   parent_image = data.aws_ami.windows_2016.id
 
@@ -161,20 +176,30 @@ resource "aws_imagebuilder_image_recipe" "windows" {
     component_arn = "arn:aws:imagebuilder:us-east-1:aws:component/aws-cli-version-2-windows/1.0.0/1"
   }
   component {
-    component_arn = "arn:aws:imagebuilder:us-east-1:aws:component/chocolatey/1.0.0/1"
-  }
-  component {
-    component_arn = aws_imagebuilder_component.mysql_workbench.arn
+    component_arn = aws_imagebuilder_component.WindowsFeatures.arn
   }
 }
 
+# Image Builder Pipeline
 resource "aws_imagebuilder_image_pipeline" "windows" {
   name                             = "windows-${var.windows_version}-ami-pipeline"
   image_recipe_arn                 = aws_imagebuilder_image_recipe.windows.arn
   infrastructure_configuration_arn = aws_imagebuilder_infrastructure_configuration.windows.arn
   distribution_configuration_arn   = aws_imagebuilder_distribution_configuration.windows.arn
-
+  status                           = "ENABLED"
+  description                      = "Creates a Windows${var.windows_version} AMI"
   schedule {
     schedule_expression = "cron(0 0 1 * ? *)" # At midnight on the 1st of each month
   }
-}
+# Test the image after build
+  image_tests_configuration {
+    image_tests_enabled = true
+    timeout_minutes     = 60
+  }
+
+  tags = {
+    "Name" = "windows-${var.windows_version}-ami-pipeline"
+  }
+}  
+######### end
+#
